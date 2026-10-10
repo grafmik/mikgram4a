@@ -1,0 +1,43 @@
+// MikGram build identity, kept apart from the upstream build files so rebases stay clean.
+
+// Own API pair from my.telegram.org; without it the build keeps the values of BuildVars.java.
+def mikgramApiId = (System.getenv('TELEGRAM_API_ID') ?: '0').trim()
+def mikgramApiHash = (System.getenv('TELEGRAM_API_HASH') ?: '').trim()
+
+// One versionCode per commit: F-Droid only offers an update when it grows, and a change on the
+// custom branch must publish even when the Telegram release is the same. Minutes since
+// 2026-01-01 of the HEAD commit, with the ABI as last digit like upstream.
+def mikgramVersionCode = { int abi ->
+    def forced = System.getenv('MIKGRAM_VERSION_CODE')
+    if (forced) {
+        return forced.trim().toInteger()
+    }
+    def seconds = providers.exec {
+        workingDir rootDir
+        commandLine 'git', 'log', '-1', '--format=%ct'
+    }.standardOutput.asText.get().trim().toLong()
+    return ((seconds - 1767225600L).intdiv(60) * 10 + abi) as int
+}
+
+android {
+    defaultConfig {
+        applicationId 'com.grafmik.mikgram'
+        buildConfigField 'int', 'MIKGRAM_API_ID', mikgramApiId
+        buildConfigField 'String', 'MIKGRAM_API_HASH', "\"${mikgramApiHash}\""
+    }
+
+    // Left unsigned: the F-Droid repository signs the APK with its own key.
+    buildTypes.release.signingConfig = null
+
+    // Personal build for one phone, the other three ABIs only cost build time and size.
+    productFlavors.afat.ndk {
+        abiFilters.clear()
+        abiFilters 'arm64-v8a'
+    }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            output.versionCodeOverride = mikgramVersionCode(variant.productFlavors.get(0).abiVersionCode)
+        }
+    }
+}

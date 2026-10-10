@@ -1,3 +1,4 @@
+apply from: 'mikgram.settings.gradle'
 include ':TMessagesProj'
 include ':TMessagesProj_App'
 include ':TMessagesProj_AppHuawei'
