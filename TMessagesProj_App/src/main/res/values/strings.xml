@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- MikGram: overrides the library string, so the launcher shows the fork's name. -->
+    <string name="AppName">MikGram</string>
+</resources>
