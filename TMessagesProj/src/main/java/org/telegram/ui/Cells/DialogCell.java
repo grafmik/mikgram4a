@@ -66,6 +66,7 @@ import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.ChatThemeController;
 import org.telegram.utils.code.highlight.CodeHighlighting;
 import org.telegram.messenger.ContactsController;
+import org.telegram.messenger.DialogColors;
 import org.telegram.messenger.DialogObject;
 import org.telegram.messenger.DownloadController;
 import org.telegram.messenger.Emoji;
@@ -4031,6 +4032,15 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
             canvas.drawRoundRect(rect, cornersRadius, cornersRadius, Theme.dialogs_tabletSeletedPaint);
         }
 
+        // MikGram: per-conversation background tint (idle state only, so the selection highlight stays visible).
+        final int dialogTint = isDialogCell && !isSelected && currentDialogFolderId == 0 ? DialogColors.getTint(currentDialogId) : 0;
+        if (dialogTint != 0) {
+            rect.set(0, 0, getMeasuredWidth(), AndroidUtilities.lerp(getMeasuredHeight(), getCollapsedHeight(), rightFragmentOpenedProgress));
+            rect.offset(0, -translateY + collapseOffset);
+            Theme.dialogs_pinnedPaint.setColor(dialogTint);
+            canvas.drawRoundRect(rect, cornersRadius, cornersRadius, Theme.dialogs_pinnedPaint);
+        }
+
         canvas.save();
         canvas.translate(0, -rightFragmentOffset * rightFragmentOpenedProgress);
         if (currentDialogFolderId != 0 && (!SharedConfig.archiveHidden || archiveBackgroundProgress != 0)) {
@@ -4076,6 +4086,10 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
 
                 if (isSelected) {
                     canvas.drawRoundRect(rect, cornersRadius, cornersRadius, Theme.dialogs_tabletSeletedPaint);
+                }
+                if (dialogTint != 0) {
+                    Theme.dialogs_pinnedPaint.setColor(dialogTint);
+                    canvas.drawRoundRect(rect, cornersRadius, cornersRadius, Theme.dialogs_pinnedPaint);
                 }
 
                 if (currentDialogFolderId != 0 && (!SharedConfig.archiveHidden || archiveBackgroundProgress != 0)) {
