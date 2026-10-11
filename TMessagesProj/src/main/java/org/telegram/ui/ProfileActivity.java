@@ -134,6 +134,7 @@ import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.AuthTokensHelper;
+import org.telegram.messenger.BannedPeers;
 import org.telegram.messenger.BillingController;
 import org.telegram.messenger.BirthdayController;
 import org.telegram.messenger.BuildVars;
@@ -12375,6 +12376,15 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 otherItem.addSubItem(leave_group, R.drawable.msg_leave, LocaleController.getString(R.string.DeleteAndExit));
                 leaveAction = true;
             }
+        }
+
+        // MikGram: local ban of a channel or a group, see BannedPeers.
+        if (chatId != 0 && !isTopic && BannedPeers.canBan(currentChat)) {
+            otherItem.addSubItem(0, R.drawable.msg_block, BannedPeers.actionText(currentChat)).setOnClickListener(v -> {
+                otherItem.closeSubMenu();
+                BannedPeers.toggle(currentChat);
+                ((ActionBarMenuSubItem) v).setText(BannedPeers.actionText(currentChat));
+            });
         }
 
         if (imageUpdater != null) {

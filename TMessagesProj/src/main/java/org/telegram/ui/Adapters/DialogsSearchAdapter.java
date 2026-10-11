@@ -33,6 +33,7 @@ import org.telegram.PhoneFormat.PhoneFormat;
 import org.telegram.SQLite.SQLiteCursor;
 import org.telegram.SQLite.SQLitePreparedStatement;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.BannedPeers;
 import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.DialogObject;
@@ -283,6 +284,10 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
     }
 
     private boolean filter(Object obj) {
+        // MikGram: locally banned chats are left out of local, global and recent results.
+        if (obj instanceof TLRPC.Chat && BannedPeers.isBanned(-((TLRPC.Chat) obj).id)) {
+            return false;
+        }
         if (dialogsType != DialogsActivity.DIALOGS_TYPE_START_ATTACH_BOT) {
             return true;
         }
@@ -625,7 +630,7 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
                             TLRPC.Message message = res.messages.get(a);
                             long did = MessageObject.getDialogId(message);
                             int maxId = MessagesController.getInstance(currentAccount).deletedHistory.get(did);
-                            if (maxId != 0 && message.id <= maxId) {
+                            if (maxId != 0 && message.id <= maxId || BannedPeers.isBanned(did)) {
                                 continue;
                             }
                             MessageObject msg = messageObjects.get(a);

@@ -140,6 +140,7 @@ import org.telegram.PhoneFormat.PhoneFormat;
 import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.BannedPeers;
 import org.telegram.messenger.BotForumHelper;
 import org.telegram.messenger.BotInlineKeyboard;
 import org.telegram.messenger.BotWebViewVibrationEffect;
@@ -39764,7 +39765,8 @@ public class ChatActivity extends BaseFragment implements
 
         @Override
         public void didPressChannelAvatar(ChatMessageCell cell, TLRPC.Chat chat, int postId, float touchX, float touchY, boolean asForward) {
-            if (chat == null) {
+            // MikGram: the name of a locally banned chat leads nowhere, see BannedPeers.
+            if (chat == null || BannedPeers.isBannedIn(-chat.id, dialog_id)) {
                 return;
             }
             if (actionBar.isActionModeShowed() || isReport()) {
@@ -40153,7 +40155,7 @@ public class ChatActivity extends BaseFragment implements
 
         @Override
         public boolean didLongPressChannelAvatar(ChatMessageCell cell, TLRPC.Chat chat, int postId, float touchX, float touchY) {
-            if (isAvatarPreviewerEnabled()) {
+            if (isAvatarPreviewerEnabled() && (chat == null || !BannedPeers.isBannedIn(-chat.id, dialog_id))) {
                 final boolean enableMention = !TextUtils.isEmpty(ChatObject.getPublicUsername(chat)) && currentChat != null && (bottomChannelButtonsLayout == null || bottomChannelButtonsLayout.getVisibility() != View.VISIBLE) && (bottomOverlay == null || bottomOverlay.getVisibility() != View.VISIBLE);
                 final boolean enableSearchMessages = currentChat != null && (threadMessageId == 0 || isTopic) && (!ChatObject.isChannel(currentChat) || currentChat.megagroup);
                 final boolean openChannel = currentChat == null || currentChat.id != chat.id || isThreadChat();
@@ -41286,6 +41288,9 @@ public class ChatActivity extends BaseFragment implements
                             did = DialogObject.getPeerDialogId(messageObject.messageOwner.reply_to.reply_from.saved_from_peer);
                         }
                     }
+                }
+                if (BannedPeers.isBannedIn(did, dialog_id)) {
+                    return;
                 }
                 TLRPC.Chat chat = null;
                 if (did < 0) {

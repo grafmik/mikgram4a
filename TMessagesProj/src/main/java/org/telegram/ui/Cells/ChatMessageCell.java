@@ -104,6 +104,7 @@ import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.AppGlobalConfig;
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.BannedPeers;
 import org.telegram.messenger.BotForumHelper;
 import org.telegram.messenger.BotInlineKeyboard;
 import org.telegram.messenger.ChatMessageSharedResources;
@@ -19166,6 +19167,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                         currentForwardNameString = currentForwardName;
                         includeAvatar = false;
                     }
+                    currentForwardNameString = BannedPeers.withSuffix(currentForwardNameString, currentForwardChannel, messageObject.getDialogId());
 
                     forwardedNameWidth = getMaxNameWidth();
                     forwardedString = getForwardedMessageText(messageObject);
@@ -19431,6 +19433,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     }
 
 
+                    name = BannedPeers.replyName(name, messageObject);
                     if (name == null) {
                         name = getString("Loading", R.string.Loading);
                     }
@@ -19579,6 +19582,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                             currentForwardNameString = currentForwardName;
                             includeAvatar = false;
                         }
+                        currentForwardNameString = BannedPeers.withSuffix(currentForwardNameString, currentForwardChannel, messageObject.getDialogId());
                         name = getForwardedMessageText(messageObject);
                         CharSequence text = currentForwardNameString == null ? "" : currentForwardNameString.replace('\n', ' ');
                         CharSequence ellipsizedText = TextUtils.ellipsize((includeAvatar ? "A " : "") + text, Theme.chat_replyNamePaint, maxWidth - dp(includeAvatar ? 17.33f : 0), TextUtils.TruncateAt.END);
@@ -19809,7 +19813,8 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     if (chat != null) return chat.title;
                 }
             }
-            return currentChat.title;
+            // MikGram: a locally banned chat posting elsewhere is marked, see BannedPeers.
+            return BannedPeers.withSuffix(currentChat.title, currentChat, currentMessageObject != null ? currentMessageObject.getDialogId() : 0);
         } else if (currentMessageObject != null && currentMessageObject.isSponsored()) {
             return currentMessageObject.sponsoredTitle;
         }
