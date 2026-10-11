@@ -1,6 +1,8 @@
 package org.telegram.messenger;
 
 import org.telegram.messenger.regular.BuildConfig;
+import org.telegram.ui.Components.BannedChatsAlert;
+import org.telegram.ui.Components.ItemOptions;
 
 public class ApplicationLoaderImpl extends ApplicationLoader {
     // MikGram: build identity, see mikgram.gradle. Passkeys and Play billing are bound to the official package.
@@ -16,5 +18,11 @@ public class ApplicationLoaderImpl extends ApplicationLoader {
     @Override
     protected String onGetApplicationId() {
         return BuildConfig.APPLICATION_ID;
+    }
+
+    // MikGram: entry of the chats list menu (⋮) that lists the locally banned chats, see BannedPeers.
+    @Override
+    public void addItemOptions(ItemOptions itemOptions) {
+        itemOptions.add(R.drawable.msg_block, MikGramLang.get(MikGramLang.Phrase.BANNED_CHATS), BannedChatsAlert::show);
     }
 }

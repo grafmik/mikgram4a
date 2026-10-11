@@ -184,6 +184,7 @@ import org.telegram.ui.Components.AnimationProperties;
 import org.telegram.ui.Components.ArchiveHelp;
 import org.telegram.ui.Components.AvatarDrawable;
 import org.telegram.ui.Components.BackupImageView;
+import org.telegram.ui.Components.BannedChatsAlert;
 import org.telegram.ui.Components.BlurredRecyclerView;
 import org.telegram.ui.Components.ColoredImageSpan;
 import org.telegram.ui.Components.DialogsActivityStatusLayout;
@@ -595,6 +596,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private ActionBarMenuSubItem readItem;
     @Nullable
     private ActionBarMenuSubItem blockItem;
+    private ActionBarMenuSubItem mikgramBanItem;
 
     private float additionalFloatingTranslation;
     private float floatingButtonPanOffset;
@@ -6675,6 +6677,8 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         readItem = otherItem.addSubItem(read, R.drawable.msg_markread, LocaleController.getString(R.string.MarkAsRead));
         clearItem = otherItem.addSubItem(clear, R.drawable.msg_clear, LocaleController.getString(R.string.ClearHistory));
         blockItem = otherItem.addSubItem(block, R.drawable.msg_block, LocaleController.getString(R.string.BlockUser));
+        // MikGram: local ban of channels and groups, see BannedPeers.
+        mikgramBanItem = BannedChatsAlert.addBanItem(otherItem, currentAccount, selectedDialogs, () -> hideActionMode(true));
         // MikGram: per-conversation background tint, see DialogColors.
         DialogColorMenu.addTo(otherItem, selectedDialogs, () -> {
             hideActionMode(true);
@@ -9873,6 +9877,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 blockItem.setVisibility(View.VISIBLE);
             }
         }
+        BannedChatsAlert.updateBanItem(mikgramBanItem, currentAccount, selectedDialogs);
         if (removeFromFolderItem != null) {
             boolean cantRemoveFromFolder = filterTabsView == null || filterTabsView.getVisibility() != View.VISIBLE || filterTabsView.currentTabIsDefault();
             if (!cantRemoveFromFolder) {

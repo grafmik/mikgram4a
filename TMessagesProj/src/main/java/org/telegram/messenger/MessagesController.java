@@ -22477,6 +22477,9 @@ public class MessagesController extends BaseController implements NotificationCe
                 }
                 for (int a = 0, N = allDialogs.size(); a < N; a++) {
                     final TLRPC.Dialog d = allDialogs.get(a);
+                    if (BannedPeers.isBanned(d.id)) {
+                        continue;
+                    }
                     final boolean isCommunity = d instanceof TLRPC.TL_dialogCommunity;
                     if (d instanceof TLRPC.TL_dialog || isCommunity) {
                         long dialogId = d.id;
@@ -22516,6 +22519,10 @@ public class MessagesController extends BaseController implements NotificationCe
         }
         for (int a = 0, N = allDialogs.size(); a < N; a++) {
             TLRPC.Dialog d = allDialogs.get(a);
+            // MikGram: locally banned chats stay out of every list, see BannedPeers.
+            if (BannedPeers.isBanned(d.id)) {
+                continue;
+            }
             if (d instanceof TLRPC.TL_dialog) {
                 ArrayList<MessageObject> messageObjects = dialogMessage.get(d.id);
                 if (messageObjects != null) {

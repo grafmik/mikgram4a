@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import org.checkerframework.checker.units.qual.A;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.BannedPeers;
 import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessageObject;
@@ -65,7 +66,7 @@ public class DialogsChannelsAdapter extends UniversalAdapter {
         ArrayList<TLRPC.Dialog> dialogs = MessagesController.getInstance(currentAccount).getAllDialogs();
         for (TLRPC.Dialog d : dialogs) {
             TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-d.id);
-            if (chat == null || !ChatObject.isChannelAndNotMegaGroup(chat) || !ChatObject.isPublic(chat) || ChatObject.isNotInChat(chat)) continue;
+            if (chat == null || !ChatObject.isChannelAndNotMegaGroup(chat) || !ChatObject.isPublic(chat) || ChatObject.isNotInChat(chat) || BannedPeers.isBanned(d.id)) continue;
             channels.add(chat);
             if (channels.size() >= 100)
                 break;
@@ -100,6 +101,7 @@ public class DialogsChannelsAdapter extends UniversalAdapter {
                             chats.add(chat);
                     }
                 }
+                BannedPeers.removeBanned(chats); // MikGram: locally banned chats are not suggested
                 if (!chats.isEmpty()) {
                     items.add(UItem.asGraySection(getString(R.string.SearchRecommendedChannels)));
                 }
@@ -130,6 +132,7 @@ public class DialogsChannelsAdapter extends UniversalAdapter {
                 if (ChatObject.isNotInChat(chat) && (localChat == null || ChatObject.isNotInChat(localChat)))
                     foundChannels.add(chat);
             }
+            BannedPeers.removeBanned(foundChannels);
             if (!foundChannels.isEmpty()) {
                 if (foundChannels.size() > 5 && !messages.isEmpty()) {
                     items.add(UItem.asGraySection(getString(R.string.SearchChannels), getString(expandedSearchChannels ? R.string.ShowLess : R.string.ShowMore), this::toggleExpandedSearchChannels));
@@ -235,6 +238,7 @@ public class DialogsChannelsAdapter extends UniversalAdapter {
 
                     for (TLRPC.Message message : response.messages) {
                         MessageObject messageObject = new MessageObject(currentAccount, message, false, true);
+                        if (BannedPeers.isBanned(messageObject.getDialogId())) continue;
                         messageObject.setQuery(query);
                         messages.add(messageObject);
                     }
