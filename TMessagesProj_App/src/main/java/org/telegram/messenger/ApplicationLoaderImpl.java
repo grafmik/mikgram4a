@@ -13,6 +13,9 @@ public class ApplicationLoaderImpl extends ApplicationLoader {
         }
         BuildVars.SUPPORTS_PASSKEYS = false;
         BuildVars.IS_BILLING_UNAVAILABLE = true;
+        // The login code sent through Firebase needs a Play Integrity verdict for the official package,
+        // which this build can never get: an empty key makes LoginActivity ask for a code in-app or by SMS instead.
+        BuildVars.SAFETYNET_KEY = "";
     }
 
     @Override
