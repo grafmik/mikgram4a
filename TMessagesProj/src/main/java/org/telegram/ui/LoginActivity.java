@@ -3235,9 +3235,12 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                             needShowAlert(getString(R.string.RestorePasswordNoEmailTitle), getString("CodeExpired", R.string.CodeExpired));
                         } else if (error.text.startsWith("FLOOD_WAIT")) {
                             needShowAlert(getString(R.string.RestorePasswordNoEmailTitle), getString("FloodWait", R.string.FloodWait));
-                        } else if (error.code != -1000) {
-                            AlertsCreator.processError(currentAccount, error, LoginActivity.this, req, phoneInputData.phoneNumber);
+                        } else {
+                            // MikGram: processError has no case for auth.sendCode and keeps 406 and -1000 silent, the spinner would just stop with no clue.
+                            needShowAlert(getString(R.string.RestorePasswordNoEmailTitle), error.code + " " + error.text);
                         }
+                    } else {
+                        needShowAlert(getString(R.string.RestorePasswordNoEmailTitle), "" + error.code); // MikGram: same, error without text
                     }
                 }
                 if (!isRequestingFirebaseSms) {
