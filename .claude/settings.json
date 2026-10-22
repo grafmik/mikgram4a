@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"/Applications/Custom Rebase.app/Contents/MacOS/CustomRebase\" --update mikgram4a)"
+    ]
+  }
+}
