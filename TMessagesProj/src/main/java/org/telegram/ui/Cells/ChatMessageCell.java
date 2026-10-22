@@ -358,7 +358,8 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     currentPhoto = null;
                 }
                 if (currentChat.signature_profiles && messageObject.getDialogId() != UserObject.REPLY_BOT) {
-                    final long did = DialogObject.getPeerDialogId(messageObject.messageOwner.from_id);
+                    // MikGram: the author's avatar in a discussion group too, see DiscussionAuthor.
+                    final long did = DiscussionAuthor.getPeerDialogId(messageObject, isMegagroup);
                     if (did >= 0) {
                         final TLRPC.User user = MessagesController.getInstance(messageObject.currentAccount).getUser(did);
                         avatarDrawable.setInfo(currentAccount, user);
@@ -1476,6 +1477,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     private boolean closeExplanationPressed;
 
     private String lastPostAuthor;
+    private long lastDiscussionAuthorId; // MikGram, see DiscussionAuthor.
     private TLRPC.Message lastReplyMessage;
 
     private boolean hasPsaHint;
@@ -6252,6 +6254,10 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         }
 
         updateCurrentUserAndChat();
+        // MikGram: the author of a discussion copy arrives later than the message, see DiscussionAuthor.
+        if (lastDiscussionAuthorId != DiscussionAuthor.getUserId(currentMessageObject, isMegagroup)) {
+            return true;
+        }
         TLRPC.FileLocation newPhoto = null;
 
         if (isAvatarVisible) {
@@ -18445,7 +18451,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             }
         } else if (messageObject.messageOwner.fwd_from != null && messageObject.messageOwner.fwd_from.post_author != null) {
             // MikGram: shown as the sender name in a discussion group, see DiscussionAuthor.
-            signString = DiscussionAuthor.get(messageObject, isMegagroup) != null ? null : messageObject.messageOwner.fwd_from.post_author.replace("\n", "");
+            signString = DiscussionAuthor.getName(messageObject, isMegagroup) != null ? null : messageObject.messageOwner.fwd_from.post_author.replace("\n", "");
         } else if (messageObject.messageOwner.fwd_from != null && messageObject.messageOwner.fwd_from.imported) {
             if (messageObject.messageOwner.fwd_from.date == messageObject.messageOwner.date) {
                 signString = getString("ImportedMessage", R.string.ImportedMessage);
@@ -18793,6 +18799,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     }
 
     private void setMessageObjectInternal(MessageObject messageObject) {
+        lastDiscussionAuthorId = DiscussionAuthor.getUserId(messageObject, isMegagroup); // MikGram, see DiscussionAuthor.
         if (((messageObject.messageOwner.flags & TLRPC.MESSAGE_FLAG_HAS_VIEWS) != 0 || messageObject.messageOwner.replies != null) && !currentMessageObject.scheduled && !currentMessageObject.isSponsored()) {
             if (!currentMessageObject.viewsReloaded) {
                 MessagesController.getInstance(currentAccount).addToViewsQueue(currentMessageObject);
@@ -18893,7 +18900,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                 adminString = new SpannableStringBuilder(messageObject.messageOwner.post_author.replace("\n", ""));
             } else if (isMegagroup && currentChat != null && currentMessageObject.isForwardedChannelPost()) {
                 // MikGram: the channel title takes the tag when the author takes the name, see DiscussionAuthor.
-                adminString = new SpannableStringBuilder(DiscussionAuthor.get(currentMessageObject, isMegagroup) != null ? TextUtils.ellipsize(currentChat.title.replace('\n', ' '), Theme.chat_adminPaint, dp(140), TextUtils.TruncateAt.END) : getString(R.string.DiscussChannel));
+                adminString = new SpannableStringBuilder(DiscussionAuthor.getName(currentMessageObject, isMegagroup) != null ? TextUtils.ellipsize(BannedPeers.withSuffix(currentChat.title, currentChat, currentMessageObject.getDialogId()).replace('\n', ' '), Theme.chat_adminPaint, dp(140), TextUtils.TruncateAt.END) : getString(R.string.DiscussChannel));
             } else if ((currentUser != null || currentChat != null) && !currentMessageObject.isOutOwner() && !currentMessageObject.isAnyKindOfSticker() && currentMessageObject.type != MessageObject.TYPE_ROUND_VIDEO && delegate != null) {
                 adminLabel = delegate.getAdminRank(currentUser != null ? currentUser.id : currentChat.id);
                 if (messageObject.messageOwner.from_rank != null) {
@@ -18938,9 +18945,6 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             currentNameBotVerificationId = 0;
             if (messageObject.customName != null) {
                 currentNameString = messageObject.customName;
-            } else if (needAuthorName && DiscussionAuthor.get(messageObject, isMegagroup) != null) {
-                // MikGram: author of the channel post as the sender name, see DiscussionAuthor.
-                currentNameString = DiscussionAuthor.get(messageObject, isMegagroup);
             } else if (needAuthorName) {
                 currentNameString = getAuthorName();
                 currentNameStatus = getAuthorStatus();
@@ -19806,11 +19810,16 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     }
 
     private String getAuthorName() {
+        // MikGram: the author of a channel post in its discussion group, see DiscussionAuthor.
+        final String discussionAuthor = DiscussionAuthor.getName(currentMessageObject, isMegagroup);
+        if (discussionAuthor != null) {
+            return discussionAuthor;
+        }
         if (currentUser != null) {
             return UserObject.getUserName(currentUser);
         } else if (currentChat != null) {
             if (currentMessageObject != null && (currentMessageObject.getDialogId() != UserObject.REPLY_BOT) && currentChat.signature_profiles) {
-                long did = DialogObject.getPeerDialogId(currentMessageObject.messageOwner.from_id);
+                long did = DiscussionAuthor.getPeerDialogId(currentMessageObject, isMegagroup); // MikGram, see DiscussionAuthor.
                 if (did >= 0) {
                     TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(did);
                     if (user != null) return UserObject.getUserName(user);
@@ -19840,7 +19849,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             }
         } else if (currentChat != null) {
             if (currentMessageObject != null && (currentMessageObject.getDialogId() != UserObject.REPLY_BOT) && currentChat.signature_profiles) {
-                long did = DialogObject.getPeerDialogId(currentMessageObject.messageOwner.from_id);
+                long did = DiscussionAuthor.getPeerDialogId(currentMessageObject, isMegagroup); // MikGram, see DiscussionAuthor.
                 if (did >= 0) {
                     TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(did);
                     if (user != null && user.emoji_status instanceof TLRPC.TL_emojiStatusCollectible) {
@@ -19866,7 +19875,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             return DialogObject.getBotVerificationIcon(currentUser);
         } else if (currentChat != null) {
             if (currentMessageObject != null && (currentMessageObject.getDialogId() != UserObject.REPLY_BOT) && currentChat.signature_profiles) {
-                long did = DialogObject.getPeerDialogId(currentMessageObject.messageOwner.from_id);
+                long did = DiscussionAuthor.getPeerDialogId(currentMessageObject, isMegagroup); // MikGram, see DiscussionAuthor.
                 if (did >= 0) {
                     TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(did);
                     if (user != null) return DialogObject.getBotVerificationIcon(user);

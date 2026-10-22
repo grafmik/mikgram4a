@@ -154,6 +154,7 @@ import org.telegram.messenger.ChatThemeController;
 import org.telegram.utils.code.highlight.CodeHighlighting;
 import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.DialogObject;
+import org.telegram.messenger.DiscussionAuthor;
 import org.telegram.messenger.DocumentObject;
 import org.telegram.messenger.DownloadController;
 import org.telegram.messenger.Emoji;
@@ -39776,7 +39777,8 @@ public class ChatActivity extends BaseFragment implements
             if (!asForward && chat != null && chat.signature_profiles) {
                 MessageObject msg = cell.getMessageObject();
                 if (msg != null && msg.getDialogId() != UserObject.REPLY_BOT) {
-                    long did = DialogObject.getPeerDialogId(msg.messageOwner.from_id);
+                    // MikGram: the author's profile in a discussion group too, see DiscussionAuthor.
+                    long did = DiscussionAuthor.getPeerDialogId(msg, ChatObject.isMegagroup(currentChat));
                     openUserProfile(did);
                     return;
                 }
