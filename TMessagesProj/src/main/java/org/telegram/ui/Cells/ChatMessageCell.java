@@ -112,6 +112,7 @@ import org.telegram.messenger.ChatObject;
 import org.telegram.utils.code.highlight.CodeHighlighting;
 import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.DialogObject;
+import org.telegram.messenger.DiscussionAuthor;
 import org.telegram.messenger.DocumentObject;
 import org.telegram.messenger.DownloadController;
 import org.telegram.messenger.Emoji;
@@ -18443,7 +18444,8 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                 signString = messageObject.messageOwner.post_author.replace("\n", "");
             }
         } else if (messageObject.messageOwner.fwd_from != null && messageObject.messageOwner.fwd_from.post_author != null) {
-            signString = messageObject.messageOwner.fwd_from.post_author.replace("\n", "");
+            // MikGram: shown as the sender name in a discussion group, see DiscussionAuthor.
+            signString = DiscussionAuthor.get(messageObject, isMegagroup) != null ? null : messageObject.messageOwner.fwd_from.post_author.replace("\n", "");
         } else if (messageObject.messageOwner.fwd_from != null && messageObject.messageOwner.fwd_from.imported) {
             if (messageObject.messageOwner.fwd_from.date == messageObject.messageOwner.date) {
                 signString = getString("ImportedMessage", R.string.ImportedMessage);
@@ -18890,7 +18892,8 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             } else if (isMegagroup && currentChat != null && messageObject.messageOwner.post_author != null && currentChat.id == -currentMessageObject.getFromChatId()) {
                 adminString = new SpannableStringBuilder(messageObject.messageOwner.post_author.replace("\n", ""));
             } else if (isMegagroup && currentChat != null && currentMessageObject.isForwardedChannelPost()) {
-                adminString = new SpannableStringBuilder(getString(R.string.DiscussChannel));
+                // MikGram: the channel title takes the tag when the author takes the name, see DiscussionAuthor.
+                adminString = new SpannableStringBuilder(DiscussionAuthor.get(currentMessageObject, isMegagroup) != null ? TextUtils.ellipsize(currentChat.title.replace('\n', ' '), Theme.chat_adminPaint, dp(140), TextUtils.TruncateAt.END) : getString(R.string.DiscussChannel));
             } else if ((currentUser != null || currentChat != null) && !currentMessageObject.isOutOwner() && !currentMessageObject.isAnyKindOfSticker() && currentMessageObject.type != MessageObject.TYPE_ROUND_VIDEO && delegate != null) {
                 adminLabel = delegate.getAdminRank(currentUser != null ? currentUser.id : currentChat.id);
                 if (messageObject.messageOwner.from_rank != null) {
@@ -18935,6 +18938,9 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             currentNameBotVerificationId = 0;
             if (messageObject.customName != null) {
                 currentNameString = messageObject.customName;
+            } else if (needAuthorName && DiscussionAuthor.get(messageObject, isMegagroup) != null) {
+                // MikGram: author of the channel post as the sender name, see DiscussionAuthor.
+                currentNameString = DiscussionAuthor.get(messageObject, isMegagroup);
             } else if (needAuthorName) {
                 currentNameString = getAuthorName();
                 currentNameStatus = getAuthorStatus();
