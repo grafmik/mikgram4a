@@ -1,6 +1,6 @@
 # MikGram Android
 
-Fork perso de Telegram Android : branche `custom` = `telegram/master` + commits MikGram, rebasée par Custom Rebase (recette `mikgram4a`).
+Fork perso de Telegram Android : branche `custom` = `upstream/master` + commits MikGram, rebasée par Custom Rebase (recette `mikgram4a`).
 
 ## Publication
 
