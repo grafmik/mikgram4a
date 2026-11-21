@@ -211,6 +211,7 @@ import org.telegram.ui.Components.SharingLocationsAlert;
 import org.telegram.ui.Components.SizeNotifierFrameLayout;
 import org.telegram.ui.Components.StickerSetBulletinLayout;
 import org.telegram.ui.Components.StickersAlert;
+import org.telegram.ui.Components.TabletSplitHandle;
 import org.telegram.ui.Components.TermsOfServiceView;
 import org.telegram.ui.Components.ThemeRevealView;
 import org.telegram.ui.Components.TextStyleSpan;
@@ -915,6 +916,20 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             launchLayout = new RelativeLayout(this) {
                 private Insets insets = Insets.NONE;
+                private final TabletSplitHandle splitHandle = new TabletSplitHandle(); // MikGram
+
+                private boolean isSplitShown() { // MikGram
+                    return !tabletFullSize && layerFragmentsStack.isEmpty() && !actionBarLayout.getFragmentStack().isEmpty()
+                        && (layersActionBarLayout == null || layersActionBarLayout.getView().getVisibility() != View.VISIBLE);
+                }
+
+                @Override
+                public boolean dispatchTouchEvent(MotionEvent ev) {
+                    if (splitHandle.dispatchTouchEvent(this, ev, isSplitShown(), insets.left, insets.right)) { // MikGram
+                        return true;
+                    }
+                    return super.dispatchTouchEvent(ev) || splitHandle.isTracking(); // MikGram: keep the gesture
+                }
 
                 {
                     ViewCompat.setOnApplyWindowInsetsListener(this, (v, i) -> {
@@ -1000,6 +1015,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         layersActionBarLayout.parentDraw(this, canvas);
                     }
                     super.dispatchDraw(canvas);
+                    splitHandle.draw(this, canvas, isSplitShown(), insets.left, insets.right); // MikGram
                 }
             };
             if (i != -1) {
