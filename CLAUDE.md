@@ -10,7 +10,7 @@ Après chaque changement de l'app commité et poussé sur `custom`, **publier sa
 "/Applications/Custom Rebase.app/Contents/MacOS/CustomRebase" --update mikgram4a
 ```
 
-Cette commande compile l'APK, le fait signer sur le VPS et le publie sur le F-Droid 9mp. Elle est autorisée dans `.claude/settings.json` : la lancer exactement sous cette forme, sans redirection ni option. Il faut ensuite vérifier dans l'index public (`https://app.9mp.org/fdroid/repo/index-v1.json`) que le nouveau versionCode de `com.grafmik.mikgram` y figure.
+Cette commande compile l'APK, le fait signer sur le VPS et le publie sur le F-Droid 9mp. Elle est autorisée dans `.claude/settings.json` : la lancer exactement sous cette forme, sans redirection ni option. Il faut ensuite vérifier dans l'index public (`https://fdroid.9mp.org/fdroid/repo/index-v1.json`) que le nouveau versionCode de `com.grafmik.mikgram` y figure.
 
 - Ne jamais signer en local, ni ajouter de `signingConfig` : la signature se fait sur le VPS uniquement.
 - Le versionCode dépend du commit HEAD : sans nouveau commit, rien n'est republié.
