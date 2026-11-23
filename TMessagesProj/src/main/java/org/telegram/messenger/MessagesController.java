@@ -17289,6 +17289,9 @@ public class MessagesController extends BaseController implements NotificationCe
                 }
             }
             getMessagesStorage().setDialogsPinned(dids, pinned);
+            if (LocalPins.keepOrder(currentAccount, folderId, dids)) {
+                return; // MikGram: never sent to Telegram, see LocalPins
+            }
 
             NativeByteBuffer data = null;
             try {
@@ -17304,6 +17307,10 @@ public class MessagesController extends BaseController implements NotificationCe
             }
             newTaskId = getMessagesStorage().createPendingTask(data);
         } else {
+            if (LocalPins.noLimit(folderId, null)) {
+                getMessagesStorage().removePendingTask(taskId); // MikGram: older pending order, not sent
+                return;
+            }
             req.order = order;
             newTaskId = taskId;
         }
@@ -17342,6 +17349,7 @@ public class MessagesController extends BaseController implements NotificationCe
         } else {
             dialog.pinnedNum = 0;
         }
+        LocalPins.onPinChanged(currentAccount, dialog); // MikGram: before the sort applies them
         sortDialogs(null);
         if (!pin && !dialogs.isEmpty() && dialogs.get(dialogs.size() - 1) == dialog && !dialogsEndReached.get(folderId)) {
             dialogs.remove(dialogs.size() - 1);
@@ -22435,6 +22443,7 @@ public class MessagesController extends BaseController implements NotificationCe
         if (chatsDict == null && ApplicationLoader.mainInterfacePaused) {
             return;
         }
+        LocalPins.apply(this); // MikGram: pins of the main list kept on this device
         dialogsServerOnly.clear();
         dialogsCanAddUsers.clear();
         dialogsMyGroups.clear();

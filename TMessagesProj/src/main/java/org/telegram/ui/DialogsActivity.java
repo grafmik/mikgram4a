@@ -116,6 +116,7 @@ import org.telegram.messenger.ImageLocation;
 import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.LiteMode;
 import org.telegram.messenger.LocaleController;
+import org.telegram.messenger.LocalPins;
 import org.telegram.messenger.MediaController;
 import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessageObject;
@@ -2492,6 +2493,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 }
             } else {
                 movingWas = true;
+                LocalPins.keepShownOrder(getMessagesController(), folderId); // MikGram
             }
             return true;
         }
@@ -8656,6 +8658,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     maxPinnedCount = getMessagesController().maxPinnedDialogsCountDefault;
                 }
             }
+            if (LocalPins.noLimit(folderId, filter)) {
+                maxPinnedCount = Integer.MAX_VALUE; // MikGram: pins kept on this device
+            }
             hasPinAction[0] = !(newPinnedSecretCount + pinnedSecretCount > maxPinnedCount || newPinnedCount + pinnedCount - alreadyAdded > maxPinnedCount);
         }
 
@@ -9187,6 +9192,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 }
             } else {
                 maxPinnedCount = getUserConfig().isPremium() ? getMessagesController().dialogFiltersPinnedLimitPremium : getMessagesController().dialogFiltersPinnedLimitDefault;
+            }
+            if (LocalPins.noLimit(folderId, filter)) {
+                maxPinnedCount = Integer.MAX_VALUE; // MikGram: pins kept on this device
             }
             if (newPinnedSecretCount + pinnedSecretCount > maxPinnedCount || newPinnedCount + pinnedCount - alreadyAdded > maxPinnedCount) {
                 if (folderId != 0 || filter != null) {
