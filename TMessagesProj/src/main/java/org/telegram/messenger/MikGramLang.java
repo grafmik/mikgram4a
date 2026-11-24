@@ -18,6 +18,8 @@ public class MikGramLang {
         BANNED_CHATS,
         BANNED,
         NO_BANNED_CHATS,
+        TRANSCRIBE_FAILED,
+        TRANSCRIBE_NEEDS_MICROPHONE,
     }
 
     private static final String[] ENGLISH = {
@@ -30,6 +32,8 @@ public class MikGramLang {
         "Banned chats",
         "banned",
         "No banned chats.",
+        "Android could not transcribe this message",
+        "Allow the microphone: Android's speech recognition requires it, even to read a message",
     };
 
     private static final HashMap<String, String[]> TRANSLATIONS = new HashMap<>();
@@ -46,6 +50,8 @@ public class MikGramLang {
             "Discussions bannies",
             "banni",
             "Aucune discussion bannie.",
+            "Android n'a pas pu transcrire ce message",
+            "Autorisez le micro : la reconnaissance vocale d'Android l'exige, même pour lire un message",
         });
         TRANSLATIONS.put("it", new String[]{"Colore di sfondo"});
         TRANSLATIONS.put("nl", new String[]{"Achtergrondkleur"});
