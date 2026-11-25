@@ -4,20 +4,25 @@ import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.icu.util.ULocale;
 import android.media.AudioFormat;
 import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.LocaleList;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
+import android.system.Os;
 import android.text.TextUtils;
 import android.widget.Toast;
 
+import org.telegram.SQLite.SQLiteCursor;
+import org.telegram.tgnet.NativeByteBuffer;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.Components.TranscribeButton;
 import org.telegram.ui.LaunchActivity;
@@ -29,7 +34,10 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.ShortBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * MikGram: transcribes voice and round video messages on the device with Android's own speech
@@ -42,6 +50,16 @@ public class LocalTranscribe {
     private static final int SAMPLE_RATE = 16000;
     private static final int PERMISSION_REQUEST = 5891;
     private static final long DOWNLOAD_WAIT_MS = 60_000;
+    private static final int FRAME_BYTES = SAMPLE_RATE / 50 * 2;
+    private static final int PAUSE_FRAMES = 35;
+    private static final int QUIET_SEARCH_FRAMES = 250;
+    private static final int MAX_CHUNK_BYTES = SAMPLE_RATE * 2 * 20;
+    private static final int PIPE_BYTES = 4096;
+    private static final int DEFAULT_PIPE_BYTES = 65536;
+    private static final int F_SETPIPE_SZ = 1031;
+    private static final int MIN_PROGRESS_BYTES = SAMPLE_RATE;
+    private static final int MIN_CHAT_TEXT = 20;
+    private static final int MAX_CHAT_TEXT = 2000;
 
     private static Boolean recognitionAvailable;
 
@@ -91,25 +109,18 @@ public class LocalTranscribe {
                     return;
                 }
                 final byte[] pcm = decode(file);
-                AndroidUtilities.runOnUIThread(() -> recognize(messageObject, pcm, recognizers(context), 0));
+                final ArrayList<int[]> chunks = split(pcm);
+                MessagesStorage.getInstance(messageObject.currentAccount).getStorageQueue().postRunnable(() -> {
+                    final String chatText = chatText(messageObject);
+                    AndroidUtilities.runOnUIThread(() -> detectLanguage(chatText, language ->
+                        recognize(new Job(messageObject, pcm, chunks, attempts(context, language)))));
+                });
             } catch (Exception e) {
                 FileLog.e(e);
                 AndroidUtilities.runOnUIThread(() -> fail(messageObject, MikGramLang.get(MikGramLang.Phrase.TRANSCRIBE_FAILED) + " (decode)"));
             }
         });
         return true;
-    }
-
-    /** On-device first (offline, nothing leaves the phone), then the recognizer chosen in Android's settings. */
-    private static ArrayList<Boolean> recognizers(Context context) {
-        final ArrayList<Boolean> onDevice = new ArrayList<>(2);
-        if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
-            onDevice.add(true);
-        }
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
-            onDevice.add(false);
-        }
-        return onDevice;
     }
 
     private static File findFile(MessageObject messageObject) {
@@ -244,29 +255,258 @@ public class LocalTranscribe {
         }
     }
 
-    /** Must run on the main thread, like every SpeechRecognizer call. */
-    private static void recognize(MessageObject messageObject, byte[] pcm, ArrayList<Boolean> recognizers, int attempt) {
-        if (attempt >= recognizers.size()) {
+    /** One transcription: the audio cut at its pauses, and the recognizers and languages to try in turn. */
+    private static class Job {
+        final MessageObject messageObject;
+        final byte[] pcm;
+        final ArrayList<int[]> chunks;
+        final ArrayList<Attempt> attempts;
+        final StringBuilder text = new StringBuilder();
+        int attempt;
+        int chunk;
+        int offset;
+
+        Job(MessageObject messageObject, byte[] pcm, ArrayList<int[]> chunks, ArrayList<Attempt> attempts) {
+            this.messageObject = messageObject;
+            this.pcm = pcm;
+            this.chunks = chunks;
+            this.attempts = attempts;
+            offset = chunks.isEmpty() ? 0 : chunks.get(0)[0];
+        }
+    }
+
+    private static class Attempt {
+        final boolean onDevice;
+        final String language;
+
+        Attempt(boolean onDevice, String language) {
+            this.onDevice = onDevice;
+            this.language = language;
+        }
+    }
+
+    /**
+     * Cuts the audio (16-bit PCM) in the middle of its pauses: some recognizers end the session at
+     * the first pause, whatever EXTRA_SEGMENTED_SESSION says. Long stretches without a pause are cut
+     * at their quietest point. Chunks without speech are left out. Returns [start, end) in bytes.
+     */
+    private static ArrayList<int[]> split(byte[] pcm) {
+        final int frames = pcm.length / FRAME_BYTES;
+        final float[] level = new float[frames];
+        for (int f = 0; f < frames; f++) {
+            long sum = 0;
+            for (int i = f * FRAME_BYTES; i < (f + 1) * FRAME_BYTES; i += 2) {
+                sum += Math.abs((short) ((pcm[i] & 0xFF) | (pcm[i + 1] << 8)));
+            }
+            level[f] = sum / (FRAME_BYTES / 2f);
+        }
+        final float[] sorted = level.clone();
+        Arrays.sort(sorted);
+        final float floor = frames > 0 ? sorted[frames / 10] : 0;
+        final float peak = frames > 0 ? sorted[frames * 9 / 10] : 0;
+        final float silence = floor + (peak - floor) * 0.1f;
+
+        final ArrayList<int[]> result = new ArrayList<>();
+        int start = 0;
+        int silent = 0;
+        boolean speech = false;
+        for (int f = 0; f < frames; f++) {
+            if (level[f] <= silence) {
+                silent++;
+            } else {
+                if (silent >= PAUSE_FRAMES && speech) {
+                    final int cut = (f - silent / 2) * FRAME_BYTES;
+                    result.add(new int[]{start, cut});
+                    start = cut;
+                    speech = false;
+                }
+                silent = 0;
+                speech = true;
+            }
+            if ((f + 1) * FRAME_BYTES - start >= MAX_CHUNK_BYTES) {
+                int quietest = f;
+                for (int q = Math.max(start / FRAME_BYTES + 1, f - QUIET_SEARCH_FRAMES); q <= f; q++) {
+                    if (level[q] < level[quietest]) {
+                        quietest = q;
+                    }
+                }
+                final int cut = quietest * FRAME_BYTES;
+                if (speech) {
+                    result.add(new int[]{start, cut});
+                }
+                start = cut;
+                speech = false;
+                for (int q = quietest; q <= f; q++) {
+                    speech |= level[q] > silence;
+                }
+            }
+        }
+        if (speech) {
+            result.add(new int[]{start, pcm.length});
+        }
+        return result;
+    }
+
+    /**
+     * Recent texts of the chat, the voice message's sender first: their voice messages are most
+     * likely in the language they write in. Runs on the storage queue.
+     */
+    private static String chatText(MessageObject messageObject) {
+        final MessagesStorage storage = MessagesStorage.getInstance(messageObject.currentAccount);
+        final long senderId = messageObject.getSenderId();
+        final StringBuilder sender = new StringBuilder();
+        final StringBuilder others = new StringBuilder();
+        SQLiteCursor cursor = null;
+        try {
+            cursor = storage.getDatabase().queryFinalized(String.format(Locale.US, "SELECT data FROM messages_v2 WHERE uid = %d ORDER BY date DESC LIMIT 200", messageObject.getDialogId()));
+            while (cursor.next() && sender.length() < MAX_CHAT_TEXT) {
+                final NativeByteBuffer data = cursor.byteBufferValue(0);
+                if (data == null) {
+                    continue;
+                }
+                final TLRPC.Message message = TLRPC.Message.TLdeserialize(data, data.readInt32(false), false);
+                data.reuse();
+                if (message == null || TextUtils.isEmpty(message.message)) {
+                    continue;
+                }
+                final StringBuilder target = MessageObject.getFromChatId(message) == senderId ? sender : others;
+                if (target.length() < MAX_CHAT_TEXT) {
+                    target.append(message.message).append('\n');
+                }
+            }
+        } catch (Exception e) {
+            FileLog.e(e);
+        } finally {
+            if (cursor != null) {
+                cursor.dispose();
+            }
+        }
+        return sender.length() >= MIN_CHAT_TEXT ? sender.toString() : sender.append(others).toString();
+    }
+
+    /** The language of the chat's texts ("fr"), or null when there is too little text to tell. */
+    private static void detectLanguage(String text, Utilities.Callback<String> done) {
+        if (text == null || text.length() < MIN_CHAT_TEXT) {
+            done.run(null);
+            return;
+        }
+        final boolean[] called = {false};
+        final Utilities.Callback<String> once = language -> {
+            if (!called[0]) {
+                called[0] = true;
+                done.run(TextUtils.isEmpty(language) || "und".equals(language) ? null : language.split("-")[0]);
+            }
+        };
+        LanguageDetector.detectLanguage(text, once::run, e -> once.run(null));
+    }
+
+    /** The chat's language first, then the app's; for each, the on-device recognizer, then Android's default one. */
+    private static ArrayList<Attempt> attempts(Context context, String chatLanguage) {
+        final ArrayList<String> languages = new ArrayList<>();
+        if (chatLanguage != null) {
+            addOnce(languages, withRegion(chatLanguage));
+            addOnce(languages, withLikelyRegion(chatLanguage));
+        }
+        final String app = language();
+        addOnce(languages, app);
+        addOnce(languages, withLikelyRegion(app.split("-")[0]));
+        final ArrayList<Attempt> result = new ArrayList<>();
+        final boolean onDevice = SpeechRecognizer.isOnDeviceRecognitionAvailable(context);
+        final boolean standard = SpeechRecognizer.isRecognitionAvailable(context);
+        for (String language : languages) {
+            if (onDevice) {
+                result.add(new Attempt(true, language));
+            }
+            if (standard) {
+                result.add(new Attempt(false, language));
+            }
+        }
+        return result;
+    }
+
+    private static void addOnce(ArrayList<String> list, String value) {
+        if (!list.contains(value)) {
+            list.add(value);
+        }
+    }
+
+    /** The region the user already has for this language (system languages, then the app's), else the likeliest. */
+    private static String withRegion(String language) {
+        final LocaleList locales = LocaleList.getDefault();
+        for (int i = 0; i < locales.size(); i++) {
+            final Locale locale = locales.get(i);
+            if (language.equals(locale.getLanguage()) && !TextUtils.isEmpty(locale.getCountry())) {
+                return language + "-" + locale.getCountry();
+            }
+        }
+        final Locale app = LocaleController.getInstance().getCurrentLocale();
+        if (app != null && language.equals(app.getLanguage()) && !TextUtils.isEmpty(app.getCountry())) {
+            return language + "-" + app.getCountry();
+        }
+        return withLikelyRegion(language);
+    }
+
+    /** "fr" → "fr-FR", "en" → "en-US", "pt" → "pt-BR": the region recognizers most likely have a model for. */
+    private static String withLikelyRegion(String language) {
+        final String country = ULocale.addLikelySubtags(new ULocale(language)).getCountry();
+        return TextUtils.isEmpty(country) ? language : language + "-" + country;
+    }
+
+    private static void nextAttempt(Job job) {
+        job.attempt++;
+        job.chunk = 0;
+        job.offset = job.chunks.isEmpty() ? 0 : job.chunks.get(0)[0];
+        job.text.setLength(0);
+        recognize(job);
+    }
+
+    private static void nextChunk(Job job) {
+        job.chunk++;
+        if (job.chunk < job.chunks.size()) {
+            job.offset = job.chunks.get(job.chunk)[0];
+        }
+        recognize(job);
+    }
+
+    /** Recognizes the job's current chunk, from job.offset. Must run on the main thread, like every SpeechRecognizer call. */
+    private static void recognize(Job job) {
+        final MessageObject messageObject = job.messageObject;
+        if (job.chunk >= job.chunks.size()) {
+            succeed(messageObject, job.text.toString().trim());
+            return;
+        }
+        if (job.attempt >= job.attempts.size()) {
             fail(messageObject, MikGramLang.get(MikGramLang.Phrase.TRANSCRIBE_FAILED));
             return;
         }
         final Context context = ApplicationLoader.applicationContext;
-        final boolean onDevice = recognizers.get(attempt);
+        final Attempt attempt = job.attempts.get(job.attempt);
+        final int start = job.offset;
+        final int end = job.chunks.get(job.chunk)[1];
         final SpeechRecognizer recognizer;
         final ParcelFileDescriptor[] pipe;
         try {
-            recognizer = onDevice
+            recognizer = attempt.onDevice
                 ? SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
                 : SpeechRecognizer.createSpeechRecognizer(context);
             pipe = ParcelFileDescriptor.createPipe();
         } catch (Exception e) {
             FileLog.e(e);
-            recognize(messageObject, pcm, recognizers, attempt + 1);
+            nextAttempt(job);
             return;
         }
+        // A small pipe tells how far the recognizer has read when it stops early.
+        int pipeSize = DEFAULT_PIPE_BYTES;
+        try {
+            pipeSize = Os.fcntlInt(pipe[1].getFileDescriptor(), F_SETPIPE_SZ, PIPE_BYTES);
+        } catch (Exception ignore) {}
+        final int buffered = pipeSize;
         final StringBuilder text = new StringBuilder();
+        final AtomicInteger written = new AtomicInteger();
+        final AtomicBoolean complete = new AtomicBoolean();
         final boolean[] done = {false};
         final Runnable[] timeout = new Runnable[1];
+        final Thread[] writer = new Thread[1];
         final Utilities.Callback<Integer> finish = error -> {
             if (done[0]) {
                 return;
@@ -278,17 +518,35 @@ public class LocalTranscribe {
             } catch (Exception ignore) {}
             closeQuietly(pipe[0]);
             closeQuietly(pipe[1]);
-            if (text.length() > 0 || error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                succeed(messageObject, text.toString().trim());
-            } else if (error != null) {
-                FileLog.d("MikGram local transcription: recognizer " + (onDevice ? "on-device" : "default") + " error " + error);
-                if (attempt + 1 < recognizers.size()) {
-                    recognize(messageObject, pcm, recognizers, attempt + 1);
-                } else {
-                    fail(messageObject, MikGramLang.get(MikGramLang.Phrase.TRANSCRIBE_FAILED) + " (" + error + ")");
+            try {
+                writer[0].join(1000);
+            } catch (InterruptedException ignore) {}
+            final int read = complete.get() ? end - start : Math.max(0, written.get() - buffered);
+            FileLog.d("MikGram local transcription: chunk " + (job.chunk + 1) + "/" + job.chunks.size()
+                + " " + attempt.language + (attempt.onDevice ? " on-device" : " default")
+                + " error " + error + " read " + read + "/" + (end - start)
+                + " text " + text.length());
+            final boolean benign = error == null || error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT;
+            if (text.length() > 0) {
+                if (job.text.length() > 0) {
+                    job.text.append(' ');
                 }
+                job.text.append(text.toString().trim());
+            }
+            if (!benign || (!complete.get() && read < MIN_PROGRESS_BYTES)) {
+                // An error, or a recognizer that never read the audio (one listening to the microphone):
+                // before any text, try the next recognizer or language; after, skip the chunk.
+                if (job.text.length() == 0) {
+                    nextAttempt(job);
+                } else {
+                    nextChunk(job);
+                }
+            } else if (!complete.get()) {
+                // Stopped at a pause in the middle of the chunk: go on from where it stopped.
+                job.offset = start + read;
+                recognize(job);
             } else {
-                succeed(messageObject, "");
+                nextChunk(job);
             }
         };
         timeout[0] = () -> finish.run(SpeechRecognizer.ERROR_SPEECH_TIMEOUT);
@@ -318,36 +576,39 @@ public class LocalTranscribe {
 
         final Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language());
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, attempt.language);
         intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         intent.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, pipe[0]);
         intent.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1);
         intent.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT);
         intent.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, SAMPLE_RATE);
-        // Without a segmented session the recognizer stops at the first pause.
         intent.putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE);
+
+        final ParcelFileDescriptor writeEnd = pipe[1];
+        writer[0] = new Thread(() -> {
+            try (OutputStream stream = new ParcelFileDescriptor.AutoCloseOutputStream(writeEnd)) {
+                for (int offset = start; offset < end; offset += PIPE_BYTES) {
+                    final int count = Math.min(PIPE_BYTES, end - offset);
+                    stream.write(job.pcm, offset, count);
+                    written.addAndGet(count);
+                }
+                complete.set(true);
+            } catch (Exception e) {
+                // The recognizer closed its end: it stopped or failed, its listener reports why.
+            }
+        }, "MikGramTranscribe");
         try {
             recognizer.startListening(intent);
         } catch (Exception e) {
             FileLog.e(e);
+            writer[0].start();
             finish.run(SpeechRecognizer.ERROR_CLIENT);
             return;
         }
         // The recognizer may read in real time: allow twice the audio length, plus a margin.
-        final long audioMs = pcm.length * 1000L / (SAMPLE_RATE * 2);
-        AndroidUtilities.runOnUIThread(timeout[0], audioMs * 2 + 30_000);
-
-        final ParcelFileDescriptor writeEnd = pipe[1];
-        new Thread(() -> {
-            try (OutputStream stream = new ParcelFileDescriptor.AutoCloseOutputStream(writeEnd)) {
-                for (int offset = 0; offset < pcm.length; offset += 8192) {
-                    stream.write(pcm, offset, Math.min(8192, pcm.length - offset));
-                }
-            } catch (Exception e) {
-                // The recognizer closed its end: it stopped or failed, its listener reports why.
-                FileLog.d("MikGram local transcription: pipe closed early: " + e);
-            }
-        }, "MikGramTranscribe").start();
+        final long audioMs = (end - start) * 1000L / (SAMPLE_RATE * 2);
+        AndroidUtilities.runOnUIThread(timeout[0], audioMs * 2 + 15_000);
+        writer[0].start();
     }
 
     /** The app's language with a region, as recognizers expect ("fr-FR", not "fr"). */
