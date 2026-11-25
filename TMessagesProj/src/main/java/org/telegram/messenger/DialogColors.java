@@ -65,6 +65,22 @@ public class DialogColors {
     }
 
     public static void set(long dialogId, int index) {
+        applySynced(dialogId, index);
+        MikGramSync.noteColorChanged(dialogId);
+    }
+
+    /** Dialog id -> palette index, for {@link MikGramSync}. */
+    public static java.util.HashMap<Long, Integer> forSync() {
+        java.util.HashMap<Long, Integer> result = new java.util.HashMap<>();
+        LongSparseIntArray all = getColors();
+        for (int a = 0, N = all.size(); a < N; a++) {
+            result.put(all.keyAt(a), all.valueAt(a));
+        }
+        return result;
+    }
+
+    /** A color chosen on another device: same as {@link #set} but not synced back. */
+    public static void applySynced(long dialogId, int index) {
         SharedPreferences.Editor editor = getPreferences().edit();
         if (index < 0 || index >= PALETTE.length) {
             getColors().delete(dialogId);

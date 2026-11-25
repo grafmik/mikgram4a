@@ -99,7 +99,24 @@ public class LocalPins {
         ArrayList<Long> order = new ArrayList<>(dialogIds);
         setOrder(key, order);
         getPreferences().edit().putString(String.valueOf(key), TextUtils.join(",", order)).apply();
+        MikGramSync.notePinsChanged(account);
         return true;
+    }
+
+    /** The pins of this device, the top one first, or null while Telegram's pins are shown. */
+    public static ArrayList<Long> forSync(int account) {
+        load();
+        ArrayList<Long> order = orders.get(accountKey(account));
+        return order == null ? null : new ArrayList<>(order);
+    }
+
+    /** Pins chosen on another device, see {@link MikGramSync}: kept here, not synced back. */
+    public static void applySynced(int account, ArrayList<Long> order) {
+        load();
+        long key = accountKey(account);
+        setOrder(key, new ArrayList<>(order));
+        getPreferences().edit().putString(String.valueOf(key), TextUtils.join(",", order)).apply();
+        MessagesController.getInstance(account).sortDialogs(null);
     }
 
     /** A chat just pinned (on top) or unpinned, before the list is sorted again. */

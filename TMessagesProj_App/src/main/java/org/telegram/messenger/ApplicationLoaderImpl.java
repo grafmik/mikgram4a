@@ -3,6 +3,7 @@ package org.telegram.messenger;
 import org.telegram.messenger.regular.BuildConfig;
 import org.telegram.ui.Components.BannedChatsAlert;
 import org.telegram.ui.Components.ItemOptions;
+import org.telegram.ui.Components.MikGramSyncAlert;
 
 public class ApplicationLoaderImpl extends ApplicationLoader {
     // MikGram: build identity, see mikgram.gradle. Passkeys and Play billing are bound to the official package.
@@ -23,9 +24,17 @@ public class ApplicationLoaderImpl extends ApplicationLoader {
         return BuildConfig.APPLICATION_ID;
     }
 
+    // MikGram: accounts already synced catch up at start, see MikGramSync.
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        MikGramSync.start();
+    }
+
     // MikGram: entry of the chats list menu (⋮) that lists the locally banned chats, see BannedPeers.
     @Override
     public void addItemOptions(ItemOptions itemOptions) {
         itemOptions.add(R.drawable.msg_block, MikGramLang.get(MikGramLang.Phrase.BANNED_CHATS), BannedChatsAlert::show);
+        itemOptions.add(R.drawable.msg_qrcode, MikGramLang.get(MikGramLang.Phrase.SYNC_TITLE), MikGramSyncAlert::show);
     }
 }

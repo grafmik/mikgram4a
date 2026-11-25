@@ -138,13 +138,32 @@ public class BannedPeers {
         getBanned().put(dialogId, title);
         getPreferences().edit().putString(String.valueOf(dialogId), title).apply();
         applied(dialogId, true);
+        MikGramSync.noteBanChanged(dialogId);
     }
 
     public static void unban(long dialogId) {
         if (getBanned().remove(dialogId) != null) {
             getPreferences().edit().remove(String.valueOf(dialogId)).apply();
             applied(dialogId, false);
+            MikGramSync.noteBanChanged(dialogId);
         }
+    }
+
+    /** A ban or unban made on another device, see {@link MikGramSync}: not synced back. */
+    public static void applySynced(long dialogId, boolean nowBanned, String title) {
+        if (dialogId >= 0) {
+            return;
+        }
+        if (nowBanned) {
+            final String name = title == null ? "" : title;
+            getBanned().put(dialogId, name);
+            getPreferences().edit().putString(String.valueOf(dialogId), name).apply();
+        } else if (getBanned().remove(dialogId) != null) {
+            getPreferences().edit().remove(String.valueOf(dialogId)).apply();
+        } else {
+            return;
+        }
+        applied(dialogId, nowBanned);
     }
 
     public static void toggle(TLRPC.Chat chat) {
