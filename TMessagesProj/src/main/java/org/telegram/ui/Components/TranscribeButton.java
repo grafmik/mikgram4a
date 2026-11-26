@@ -677,7 +677,7 @@ public class TranscribeButton {
         long dialogId = DialogObject.getPeerDialogId(peer);
         int messageId = messageObject.messageOwner.id;
         if (open) {
-            if (messageObject.messageOwner.voiceTranscription != null && messageObject.messageOwner.voiceTranscriptionFinal) {
+            if (messageObject.messageOwner.voiceTranscription != null && messageObject.messageOwner.voiceTranscriptionFinal && !LocalTranscribe.redo(messageObject)) { // MikGram
                 TranscribeButton.openVideoTranscription(messageObject);
                 messageObject.messageOwner.voiceTranscriptionOpen = true;
                 MessagesStorage.getInstance(account).updateMessageVoiceTranscriptionOpen(dialogId, messageId, messageObject.messageOwner);
