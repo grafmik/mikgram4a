@@ -41,6 +41,7 @@ public class MikGramLang {
         TRANSCRIBE_FAILED,
         TRANSCRIBE_NEEDS_MICROPHONE,
         TRANSCRIBE_DOWNLOADING,
+        TRANSCRIBE_CONFIRM_DOWNLOAD,
     }
 
     private static final String[] ENGLISH = {
@@ -75,7 +76,8 @@ public class MikGramLang {
         "Syncing…",
         "Android could not transcribe this message",
         "Allow the microphone: Android's speech recognition requires it, even to read a message",
-        "Android is downloading its %s speech model: the transcription will follow",
+        "Android is downloading its %1$s speech model… %2$s",
+        "Accept the download of the %s speech model in Android's window: the transcription will follow",
     };
 
     private static final HashMap<String, String[]> TRANSLATIONS = new HashMap<>();
@@ -114,7 +116,8 @@ public class MikGramLang {
             "Synchronisation…",
             "Android n'a pas pu transcrire ce message",
             "Autorisez le micro : la reconnaissance vocale d'Android l'exige, même pour lire un message",
-            "Android télécharge son modèle vocal (%s) : la transcription suivra",
+            "Android télécharge son modèle vocal %1$s… %2$s",
+            "Acceptez le téléchargement du modèle vocal %s dans la fenêtre d'Android : la transcription suivra",
         });
         TRANSLATIONS.put("it", new String[]{"Colore di sfondo"});
         TRANSLATIONS.put("nl", new String[]{"Achtergrondkleur"});

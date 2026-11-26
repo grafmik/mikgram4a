@@ -28,6 +28,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.ShortBuffer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Locale;
 
 /**
@@ -45,6 +46,8 @@ public class LocalTranscribe {
     private static final int ENGINE_VERSION = 2;
 
     private static Boolean recognitionAvailable;
+    // Messages being transcribed (versionKey), main thread only: another tap does not start a second job.
+    private static final HashSet<String> running = new HashSet<>();
 
     /** Local transcription replaces the server one: Android 13+, a recognizer, no Premium. */
     public static boolean enabled(int account) {
@@ -73,6 +76,9 @@ public class LocalTranscribe {
             return false;
         }
         final Context context = ApplicationLoader.applicationContext;
+        if (running.contains(versionKey(messageObject))) {
+            return true;
+        }
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             // Android's recognition service refuses callers without the microphone permission,
             // even when the audio comes from a file.
@@ -84,6 +90,7 @@ public class LocalTranscribe {
             });
             return true;
         }
+        running.add(versionKey(messageObject));
         Utilities.globalQueue.postRunnable(() -> {
             try {
                 final File file = waitForFile(messageObject);
@@ -102,10 +109,18 @@ public class LocalTranscribe {
                             }
 
                             @Override
-                            public void onDownloading(String language) {
+                            public void onProgress(String text, int percent) {
+                                showProgress(messageObject, (TextUtils.isEmpty(text) ? "" : text + " ") + "… " + percent + " %");
+                            }
+
+                            @Override
+                            public void onDownloading(String language, boolean confirmed, long elapsed) {
                                 final Locale app = LocaleController.getInstance().getCurrentLocale();
                                 final String name = Locale.forLanguageTag(language).getDisplayLanguage(app != null ? app : Locale.getDefault());
-                                Toast.makeText(context, String.format(MikGramLang.get(MikGramLang.Phrase.TRANSCRIBE_DOWNLOADING), name), Toast.LENGTH_LONG).show();
+                                final long seconds = elapsed / 1000;
+                                showProgress(messageObject, confirmed
+                                    ? String.format(Locale.US, MikGramLang.get(MikGramLang.Phrase.TRANSCRIBE_DOWNLOADING), name, String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60))
+                                    : String.format(MikGramLang.get(MikGramLang.Phrase.TRANSCRIBE_CONFIRM_DOWNLOAD), name));
                             }
 
                             @Override
@@ -378,7 +393,18 @@ public class LocalTranscribe {
             && versions().getInt(versionKey(messageObject), 0) < ENGINE_VERSION;
     }
 
+    /** Shows text in place of the transcription while it is under way; it is not stored. */
+    private static void showProgress(MessageObject messageObject, String text) {
+        final TLRPC.Message owner = messageObject.messageOwner;
+        owner.voiceTranscription = text;
+        owner.voiceTranscriptionOpen = true;
+        owner.voiceTranscriptionFinal = false;
+        TranscribeButton.openVideoTranscription(messageObject);
+        NotificationCenter.getInstance(messageObject.currentAccount).postNotificationName(NotificationCenter.voiceTranscriptionUpdate, messageObject, (Long) 0L, text, (Boolean) true, (Boolean) false);
+    }
+
     private static void succeed(MessageObject messageObject, String text) {
+        running.remove(versionKey(messageObject));
         versions().edit().putInt(versionKey(messageObject), ENGINE_VERSION).apply();
         TranscribeButton.openVideoTranscription(messageObject);
         messageObject.messageOwner.voiceTranscriptionOpen = true;
@@ -387,6 +413,7 @@ public class LocalTranscribe {
 
     /** Shows the error, then forgets the attempt so that the next tap tries again. */
     private static void fail(MessageObject messageObject, String message) {
+        running.remove(versionKey(messageObject));
         Toast.makeText(ApplicationLoader.applicationContext, message, Toast.LENGTH_LONG).show();
         TranscribeButton.finishTranscription(messageObject, 0, "");
         // finishTranscription posts its notification to the main thread: reset after it.

@@ -42,8 +42,14 @@ public class LocalSpeech {
     public interface Listener {
         void onText(String text);
 
-        /** The model of this language (a tag such as "fr-FR") is downloading; recognition follows. */
-        void onDownloading(String language);
+        /** The text so far, and how much of the audio it covers (0 to 100). */
+        void onProgress(String text, int percent);
+
+        /**
+         * The model of this language (a tag such as "fr-FR") is needed: Android's prompt waits for
+         * the user, or the download is under way (confirmed) since elapsed ms. Recognition follows.
+         */
+        void onDownloading(String language, boolean confirmed, long elapsed);
 
         void onFailure(String details);
     }
@@ -66,6 +72,13 @@ public class LocalSpeech {
     private static final long MODEL_POLL_MS = 5_000;
     private static final long MODEL_PROMPT_MS = 60_000;
     private static final long MODEL_DOWNLOAD_MS = 5 * 60_000;
+    // Google's speech services fail (ERROR_CLIENT) when more than about 8 s of audio arrives at
+    // once: the audio is fed at a multiple of real time, halved after each such failure.
+    private static final int START_PACE = 8;
+    private static final int BYTES_PER_MS = SAMPLE_RATE * 2 / 1000;
+    // The last download prompt opened, so that another transcription waits instead of opening another.
+    private static String promptedLanguage;
+    private static long promptedAt;
     // Opens the download prompt of Google's speech services for EXTRA_LANGUAGE.
     private static final String ACTION_DOWNLOAD_LANGUAGE = "com.google.recognition.action.DOWNLOAD_LANGUAGE";
 
@@ -122,6 +135,7 @@ public class LocalSpeech {
         boolean retried;
         boolean verified;
         boolean downloaded;
+        int pace = START_PACE;
 
         Job(Context context, byte[] pcm, ArrayList<int[]> chunks, List<String> languages, Listener listener) {
             this.context = context;
@@ -447,6 +461,13 @@ public class LocalSpeech {
         if (job.downloaded) {
             return false;
         }
+        for (Support support : job.supports) {
+            // Android does not list installed languages as downloadable: another variant ("fr-BE"
+            // when "fr-FR" is there) would come up instead.
+            if (support.installed != null) {
+                return false;
+            }
+        }
         int pending = -1;
         int downloadable = -1;
         int prompt = -1;
@@ -472,8 +493,12 @@ public class LocalSpeech {
         final int index = pending >= 0 ? pending : prompt >= 0 ? prompt : downloadable;
         final Service service = job.services.get(index);
         final String tag = pending >= 0 ? job.supports[index].pending : job.supports[index].downloadable;
-        job.listener.onDownloading(tag);
-        if (pending < 0) {
+        final long now = SystemClock.elapsedRealtime();
+        final boolean prompted = tag.equals(promptedLanguage) && now - promptedAt < MODEL_PROMPT_MS;
+        job.listener.onDownloading(tag, pending >= 0, 0);
+        if (pending < 0 && !prompted) {
+            promptedLanguage = tag;
+            promptedAt = now;
             if (index == prompt) {
                 // Google's speech services cannot open this prompt themselves when another app asks
                 // (Android blocks activity starts from the background): MikGram opens it.
@@ -492,8 +517,7 @@ public class LocalSpeech {
                 }
             }
         }
-        final long now = SystemClock.elapsedRealtime();
-        waitForModel(job, service, tag, now + MODEL_PROMPT_MS, now + MODEL_DOWNLOAD_MS, pending >= 0);
+        waitForModel(job, service, tag, now, now + MODEL_PROMPT_MS, now + MODEL_DOWNLOAD_MS, pending >= 0);
         return true;
     }
 
@@ -503,16 +527,19 @@ public class LocalSpeech {
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag);
     }
 
-    private static void waitForModel(Job job, Service service, String tag, long promptUntil, long downloadUntil, boolean started) {
+    private static void waitForModel(Job job, Service service, String tag, long since, long promptUntil, long downloadUntil, boolean started) {
         main.postDelayed(() -> checkSupport(job.context, service, tag, support -> {
             final long now = SystemClock.elapsedRealtime();
             if (support.installed != null) {
+                promptedLanguage = null;
                 service.language = support.installed;
                 job.queue.clear();
                 job.queue.add(service);
                 main.postDelayed(() -> startService(job, 0), SESSION_GAP_MS);
             } else if (support.pending != null && now < downloadUntil || support.pending == null && !started && now < promptUntil) {
-                waitForModel(job, service, tag, promptUntil, downloadUntil, started || support.pending != null);
+                final boolean confirmed = started || support.pending != null;
+                job.listener.onDownloading(tag, confirmed, now - since);
+                waitForModel(job, service, tag, since, promptUntil, downloadUntil, confirmed);
             } else {
                 job.note(tag + (support.pending != null ? " model still downloading" : " model not downloaded"));
                 job.listener.onFailure(job.notes.toString());
@@ -533,10 +560,12 @@ public class LocalSpeech {
         job.retried = false;
         job.verified = false;
         job.text.setLength(0);
+        job.listener.onProgress("", 0);
         recognizeChunk(job);
     }
 
     private static void nextChunk(Job job) {
+        job.listener.onProgress(job.text.toString(), (int) (100L * job.chunks.get(job.chunk)[1] / job.pcm.length));
         job.chunk++;
         job.retried = false;
         if (job.chunk < job.chunks.size()) {
@@ -634,12 +663,18 @@ public class LocalSpeech {
         intent.putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE);
 
         final ParcelFileDescriptor writeEnd = pipe[1];
+        final int pace = job.pace;
         writer[0] = new Thread(() -> {
             try (OutputStream stream = new ParcelFileDescriptor.AutoCloseOutputStream(writeEnd)) {
+                final long began = SystemClock.elapsedRealtime();
                 for (int offset = start; offset < end; offset += PIPE_BYTES) {
                     final int count = Math.min(PIPE_BYTES, end - offset);
                     stream.write(job.pcm, offset, count);
                     written.addAndGet(count);
+                    final long due = (offset + count - start) / ((long) BYTES_PER_MS * pace) - (SystemClock.elapsedRealtime() - began);
+                    if (due > 0) {
+                        Thread.sleep(due);
+                    }
                 }
                 complete.set(true);
             } catch (Exception e) {
@@ -663,6 +698,13 @@ public class LocalSpeech {
     /** Decides what follows a session: the next chunk, the rest of this one, a retry, or the next service. */
     private static void afterSession(Job job, Service service, int start, int read, boolean complete, Integer error, String text) {
         final boolean progressed = complete || read >= MIN_PROGRESS_BYTES;
+        if (error != null && error == SpeechRecognizer.ERROR_CLIENT && job.pace > 1) {
+            // Fed faster than it recognizes: the same piece again, slower.
+            job.pace /= 2;
+            job.offset = start;
+            recognizeChunk(job);
+            return;
+        }
         final boolean busy = error != null && (error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY);
         if (!progressed && busy && !job.retried) {
             // The service was still busy with an earlier session: once more, a little later.
