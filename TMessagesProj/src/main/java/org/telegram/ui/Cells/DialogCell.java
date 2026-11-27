@@ -5041,7 +5041,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
     private int reorderGradientLastColor;
     private Paint reorderGradientPaint;
     private Paint getPaintReorderGradient() {
-        final int color = Theme.getColor(Theme.key_windowBackgroundWhite, resourcesProvider);
+        final int color = DialogColors.background(isDialogCell && !isSelected && currentDialogFolderId == 0 ? currentDialogId : 0, Theme.getColor(Theme.key_windowBackgroundWhite, resourcesProvider)); // MikGram
         if (reorderGradientLastColor != color || reorderGradientPaint == null) {
             reorderGradientLastColor = color;
 

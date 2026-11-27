@@ -3,6 +3,8 @@ package org.telegram.messenger;
 import android.app.Activity;
 import android.content.SharedPreferences;
 
+import androidx.core.graphics.ColorUtils;
+
 import org.telegram.messenger.support.LongSparseIntArray;
 
 import java.util.Map;
@@ -62,6 +64,16 @@ public class DialogColors {
     public static int getTint(long dialogId) {
         int index = get(dialogId);
         return index == NONE ? 0 : (PALETTE[index] & 0x00FFFFFF) | (TINT_ALPHA << 24);
+    }
+
+    /**
+     * The row background with the dialog's tint over it, opaque. For what paints the background to
+     * hide the row's content (the fade under the reorder icon): the plain background would show as
+     * a band on a tinted row.
+     */
+    public static int background(long dialogId, int background) {
+        final int tint = getTint(dialogId);
+        return tint == 0 ? background : ColorUtils.compositeColors(tint, background);
     }
 
     public static void set(long dialogId, int index) {
